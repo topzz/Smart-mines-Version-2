@@ -14,12 +14,12 @@ String sample;
 // Potentiometer is connected to GPIO 34 (Analog ADC1_CH6)
 const int potPin = 34;
 
-double MAX_VAL_V = 1.29; //voltage of maximum gauge value
-double MIN_VAL_V = 2.55;
+double MAX_VAL_V = 0.32; //voltage of maximum gauge value
+double MIN_VAL_V = 1.41;
 
 int potValue[10];
 double CAL = 0;
-int j;
+int j, cnt;
 long result;
 long result_ave;
 double V;
@@ -94,7 +94,7 @@ String checker = "/Checker";
 String receiver = "/Receiver";
 String PendingFile = "/PendingFile";
 String DataLogger = "/DataLogger";
-String MDRnumber="/MDRnumber";
+String MDRnumber = "/MDRnumber";
 String macAdr;
 String destination;
 String App_Data, character;
@@ -103,7 +103,7 @@ String LastNum = "/File_LastNum.txt";
 String LastSent = "/File_LastSent.txt";
 bool confirm = false;
 bool MDRcreate = false;
-bool send_weight=false;
+bool send_weight = false;
 String WMT;
 
 #define RXD2 14
@@ -165,8 +165,11 @@ bool setPowerBoostKeepOn(int en) {
 }
 
 void setup() {
+  CAL = (MAX_VAL_V - MIN_VAL_V);
+
   pinMode(LEDPin, OUTPUT);
   pinMode(BT_LED, OUTPUT);
+  pinMode(potPin, INPUT);
   digitalWrite (BT_LED, LOW);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
   SerialBT.begin("SM_Tracker 101"); //Bluetooth dev ice name
@@ -201,7 +204,7 @@ void setup() {
     modem.simUnlock(simPIN);
   }
 
-  //  reset_SD_Card();
+  // reset_SD_Card();
 
   SerialMon.println("Modem Initialized...");
   if (1) {
@@ -460,7 +463,7 @@ void Task2code( void * pvParameters ) {
       String MDRValue = readFile(SD, MDRno);
       String weightsend = MDRValue + WMT;
       Serial.println(weightsend);
-      if(MDRValue!="" && WMT!="")
+      if (MDRValue != "" && WMT != "")
       {
         String httpRequestData = "&api_key=" + apiKeyValue + "&" + weightsend + "";
         bool Send_success = SendtoServer(httpRequestData, resource4);
@@ -473,7 +476,7 @@ void Task2code( void * pvParameters ) {
 
     }
 
-    vTaskDelay(100 / portTICK_PERIOD_MS);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
   }
   vTaskDelay(10 / portTICK_PERIOD_MS);
 }
@@ -514,12 +517,12 @@ void deleteFile(fs::FS &fs, String path) {
 String readFile(fs::FS &fs, String path) {
   String read_String = "";
   File file = fs.open(path);
-  vTaskDelay(30 / portTICK_PERIOD_MS);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
   if (!file) {
     Serial.println();
     Serial.println("Failed to open " + path + " for reading");
     digitalWrite(LEDPin, HIGH);
-    vTaskDelay(20 / portTICK_PERIOD_MS);
+    vTaskDelay(10 / portTICK_PERIOD_MS);
     digitalWrite(LEDPin, LOW);
     return read_String;
   }
@@ -551,6 +554,7 @@ bool writeFile(fs::FS &fs, String path, String message) {
     return false;
   }
 }
+
 bool appendFile(fs::FS &fs, String path, String message) {
   Serial.println("Appending to file: " + path);
   vTaskDelay(10 / portTICK_PERIOD_MS);
@@ -584,8 +588,8 @@ void reset_SD_Card() {
     //else
     //Serial.println("Empty");
   }
-  //deleteFile(SD, LastNum);
-  //deleteFile(SD, LastSent);
+  deleteFile(SD, LastNum);
+  deleteFile(SD, LastSent);
 
 }
 
@@ -653,24 +657,30 @@ String read_fuel()
   double FL;
   for (j = 0; j < 10; j++) {
     potValue[j] = analogRead(potPin);
-    delay(20);
+    result += potValue[j];
+    if (potValue[j] != 0) {
+      cnt++;
+    }
+    delay(10);
   }
-  j = 0;
-  result = 0;
-  result_ave = 0;
-  for (j = 0; j < 10; j++) {
-    result = result + potValue[j];
+  if (cnt == 0) {
+    result_ave = result / 1;
   }
-  result_ave = result / 10;
-  V = result_ave * (3.3 / 4095.0);
+  else {
+    result_ave = result / cnt;
+  }
+  V = (result_ave * (3.3 / 4095.0)) + 0.08;
   if (V > MIN_VAL_V)
     V = MIN_VAL_V;
 
   FL = 100 * (V - MIN_VAL_V) / CAL;
-
   if (FL > 100)
     FL = 100;
 
+  j = 0;
+  result = 0;
+  cnt = 0;
+  Serial.println(V);
   Serial.println(" Fuel Level = " + String(FL) + "%");
   return (String)FL;
 }
