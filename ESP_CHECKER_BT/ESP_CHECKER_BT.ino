@@ -12,6 +12,7 @@
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
 
+String BT_name="Checker 1";
 String filename = "/File_httpData";
 String LastNum = "/File_LastNum.txt";
 String LastSent = "/File_LastSent.txt";
@@ -124,7 +125,7 @@ void setup()
   pinMode(BT_LED, OUTPUT);
   digitalWrite (BT_LED, LOW);
   digitalWrite(LEDPin, HIGH);
-  SerialBT.begin("SM_Checker 101"); //Bluetooth device name
+  SerialBT.begin(BT_name); //Bluetooth device name
   SerialBT.register_callback (Bt_Status);
 
 }

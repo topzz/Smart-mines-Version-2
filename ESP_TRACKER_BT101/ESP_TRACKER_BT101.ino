@@ -14,8 +14,12 @@ String sample;
 // Potentiometer is connected to GPIO 34 (Analog ADC1_CH6)
 const int potPin = 34;
 
-double MAX_VAL_V = 0.32; //voltage of maximum gauge value
-double MIN_VAL_V = 1.41;
+//double MAX_VAL_V = 0.32; //voltage of maximum gauge value
+//double MIN_VAL_V = 1.41;
+double MAX_VAL_V = 2.43; //voltage of maximum gauge value
+double MIN_VAL_V = 7.1;
+
+String BT_name= "DT-007";
 
 int potValue[10];
 double CAL = 0;
@@ -65,8 +69,8 @@ String nodes[] = {
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
 
-#define LEDPin            13
-#define BT_LED            32
+#define LEDPin            13   //indicator for power
+#define BT_LED            32   //indicator BT connectivity
 
 BluetoothSerial SerialBT;
 // Bt_Status callback function
@@ -165,6 +169,8 @@ bool setPowerBoostKeepOn(int en) {
 }
 
 void setup() {
+  MAX_VAL_V = MAX_VAL_V * 0.40869 ; //voltage div ratio (68k,10k ohms)
+  MIN_VAL_V = MIN_VAL_V * 0.40869 ;
   CAL = (MAX_VAL_V - MIN_VAL_V);
 
   pinMode(LEDPin, OUTPUT);
@@ -172,7 +178,7 @@ void setup() {
   pinMode(potPin, INPUT);
   digitalWrite (BT_LED, LOW);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  SerialBT.begin("SM_Tracker 101"); //Bluetooth dev ice name
+  SerialBT.begin(BT_name); //Bluetooth dev ice name
   SerialBT.register_callback (Bt_Status);
 
   SerialMon.begin(115200);
@@ -181,7 +187,6 @@ void setup() {
     return;
   }
   uint8_t cardType = SD.cardType();
-
   if (cardType == CARD_NONE) {
     Serial.println("No SD card attached");
     return;
@@ -222,6 +227,7 @@ void setup() {
       Serial.println("LastSent:" + lastsent);
     }
   }
+  digitalWrite(LEDPin, HIGH);
 
   //create a task that will be executed in the Task1code() function, with priority 1 and executed on core 0
   xTaskCreatePinnedToCore(
@@ -296,7 +302,7 @@ void Task1code( void * pvParameters ) {
         Serial2.print("confirmed");
 
         String receiverFN = receiver + ".txt";
-        confirm = true;
+        // confirm = true;
         bool save = false;
         while (!save)
         {
@@ -306,25 +312,31 @@ void Task1code( void * pvParameters ) {
     }
     if (BT_String.length() > 30) {
       //Read fuel
-      String Fuel_level = read_fuel();
-      String http_data = BT_String + "&fuel=" + Fuel_level ;
-      Serial.println(http_data);
-      delay(1);
-      String lastnum = readFile(SD, LastNum);
-      int lastnum_int = lastnum.toInt();
+      String ticket = getValue(App_Data, '&', 32);
+      String Lat = getValue(BT_String, '&', 2);
+      Serial.println(Lat);
+      if (Lat != "lat=N/A")
+      {
+        String Fuel_level = read_fuel();
+        String http_data = BT_String + "&fuel=" + Fuel_level ;
+        Serial.println(http_data);
+        delay(1);
+        String lastnum = readFile(SD, LastNum);
+        int lastnum_int = lastnum.toInt();
 
-      String http_txt = filename + (String)lastnum_int + ".txt";
-      Serial.println(http_txt);
+        String http_txt = filename + (String)lastnum_int + ".txt";
+        Serial.println(http_txt);
 
-      bool written1 = false;
-      bool written2 = false;
-      while (!written1) { //retry if failed to write
-        written1 = writeFile(SD, http_txt, http_data);
-      }
-      lastnum_int++;
+        bool written1 = false;
+        bool written2 = false;
+        while (!written1) { //retry if failed to write
+          written1 = writeFile(SD, http_txt, http_data);
+        }
+        lastnum_int++;
 
-      while (!written2) {
-        written2 = writeFile(SD, LastNum, (String)lastnum_int);
+        while (!written2) {
+          written2 = writeFile(SD, LastNum, (String)lastnum_int);
+        }
       }
     }
     App_Data = "";
@@ -379,7 +391,7 @@ void Task2code( void * pvParameters ) {
       }
     }
     if (http_data != "") {
-      digitalWrite(LEDPin, HIGH);
+      //digitalWrite(LEDPin, HIGH);
       String http_data = readFile(SD, http_txt);
       String httpRequestData = "api_key=" + apiKeyValue + "&" + http_data + "";
       Serial.println(httpRequestData);
@@ -424,39 +436,39 @@ void Task2code( void * pvParameters ) {
             deleteFile(SD, http_txt);
         }
       }
-      digitalWrite(LEDPin, LOW);
+      //digitalWrite(LEDPin, LOW);
     }
     // if the Checker created MDR then send to cloud
-    if (MDRcreate)
+    // if (MDRcreate)
+    // {
+    String checkerFN = checker + ".txt";
+    String MDRbuild = readFile(SD, checkerFN);
+    if (MDRbuild != "")
     {
-      String checkerFN = checker + ".txt";
-      String MDRbuild = readFile(SD, checkerFN);
-      if (MDRbuild != "")
+      String httpRequestData = "&api_key=" + apiKeyValue + "&" + MDRbuild + "";
+      bool Send_success = SendtoServer(httpRequestData, resource2);
+      if (Send_success)   // We need  to save the data after sending to cloud
       {
-        String httpRequestData = "&api_key=" + apiKeyValue + "&" + MDRbuild + "";
-        bool Send_success = SendtoServer(httpRequestData, resource2);
-        if (Send_success)   // We need  to save the data after sending to cloud
-        {
-          deleteFile(SD, checkerFN);
-          MDRcreate = false;
-        }
+        deleteFile(SD, checkerFN);
+        //     MDRcreate = false;
       }
     }
-    if (confirm)
+    // }
+    // if (confirm)
+    // {
+    String recConfirm = receiver + ".txt";
+    String confirm_data = readFile(SD, recConfirm);
+    if (confirm_data != "")
     {
-      String recConfirm = receiver + ".txt";
-      String confirm_data = readFile(SD, recConfirm);
-      if (confirm_data != "")
+      String httpRequestData = "&api_key=" + apiKeyValue + "&" + confirm_data + "";
+      bool Send_success = SendtoServer(httpRequestData, resource3);
+      if (Send_success)   // We need  to save the data after sending to cloud
       {
-        String httpRequestData = "&api_key=" + apiKeyValue + "&" + confirm_data + "";
-        bool Send_success = SendtoServer(httpRequestData, resource3);
-        if (Send_success)   // We need  to save the data after sending to cloud
-        {
-          deleteFile(SD, recConfirm);
-          confirm = false;
-        }
+        deleteFile(SD, recConfirm);
+        //    confirm = false;
       }
     }
+    //  }
     if (send_weight)
     {
       String MDRno = MDRnumber + ".txt";
@@ -489,7 +501,7 @@ void MDRToSD()
   String MDRbuild = buildUrlParams(MDR);
   Serial.println(MDRbuild);
   bool save = false;
-  MDRcreate = true;
+  //MDRcreate = true;
   while (!save)
   {
     String MDRno = MDRnumber + ".txt";
@@ -521,9 +533,9 @@ String readFile(fs::FS &fs, String path) {
   if (!file) {
     Serial.println();
     Serial.println("Failed to open " + path + " for reading");
-    digitalWrite(LEDPin, HIGH);
+    //digitalWrite(LEDPin, HIGH);
     vTaskDelay(10 / portTICK_PERIOD_MS);
-    digitalWrite(LEDPin, LOW);
+    //digitalWrite(LEDPin, LOW);
     return read_String;
   }
   //Serial.print("Read from file: ");
@@ -629,6 +641,7 @@ bool SendtoServer(String httpRequestData_local, String resources) {
       while (client.connected() && millis() - timeout < 10000L) {
         while (client.available()) {
           char c = client.read();
+          Serial.print(c);
           if (c == '{')
             start_save = true;
           if (start_save)
