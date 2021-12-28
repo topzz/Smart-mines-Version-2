@@ -1,8 +1,8 @@
 #include <esp_now.h>
 #include <WiFi.h>
 
-#define RXD2 14
-#define TXD2 12
+#define RXD2 12
+#define TXD2 14
 
 String dataRec;
 String success;

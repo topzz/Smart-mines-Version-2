@@ -14,12 +14,12 @@ String sample;
 // Potentiometer is connected to GPIO 34 (Analog ADC1_CH6)
 const int potPin = 34;
 
-//double MAX_VAL_V = 0.32; //voltage of maximum gauge value
-//double MIN_VAL_V = 1.41;
-double MAX_VAL_V = 2.43; //voltage of maximum gauge value
-double MIN_VAL_V = 7.1;
+double MAX_VAL_V = 0.32; //voltage of maximum gauge value
+double MIN_VAL_V = 1.41;
+//double MAX_VAL_V = 2.43; //voltage of maximum gauge value
+//double MIN_VAL_V = 7.1;
 
-String BT_name= "DT-007";
+String BT_name= "DT-006"; //  device name
 
 int potValue[10];
 double CAL = 0;
@@ -296,7 +296,6 @@ void Task1code( void * pvParameters ) {
       String result = getValue(BT_String, '=', 0);
       Serial.println("Result: " + result);
       Serial.println("BT_String: " + BT_String);
-
       if (result == "mdr")
       {
         Serial2.print("confirmed");
@@ -312,7 +311,7 @@ void Task1code( void * pvParameters ) {
     }
     if (BT_String.length() > 30) {
       //Read fuel
-      String ticket = getValue(App_Data, '&', 32);
+      //String ticket = getValue(App_Data, '&', 32);
       String Lat = getValue(BT_String, '&', 2);
       Serial.println(Lat);
       if (Lat != "lat=N/A")
