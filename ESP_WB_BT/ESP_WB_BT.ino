@@ -7,11 +7,14 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
+#include <EEPROM.h>
 
+#define EEPROM_SIZE 15
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
-
+int address;
+String BT_name;
 String filename = "/File_httpData";
 String LastNum = "/File_LastNum.txt";
 String LastSent = "/File_LastSent.txt";
@@ -87,7 +90,10 @@ void setup()
   pinMode(BT_LED, OUTPUT);
   digitalWrite (BT_LED, LOW);
   digitalWrite(LEDPin,HIGH);
-  SerialBT.begin("SM_WB 101"); //Bluetooth device name
+  EEPROM.begin(EEPROM_SIZE);
+  address=0;
+  BT_name= EEPROM.readString(address);
+  SerialBT.begin(BT_name); //Bluetooth device name
   SerialBT.register_callback (Bt_Status);
 /*
   if(!SD.exists(LastSent)&&!SD.exists(LastNum)){
@@ -107,6 +113,13 @@ void setup()
 
 void loop()
 {
+  while(Serial.available()>0)
+  {
+    String BT=Serial.readStringUntil('\n');
+    EEPROM.writeString(address,BT);
+    EEPROM.commit();
+    ESP.restart();
+  }
   while(Serial2.available()>0)
   {
     macRec=Serial2.readStringUntil('\n');

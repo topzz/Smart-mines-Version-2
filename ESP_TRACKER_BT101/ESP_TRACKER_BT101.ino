@@ -8,7 +8,9 @@
 #include "SD.h"
 #include "SPI.h"
 #include "Arduino.h"
+#include <EEPROM.h>
 
+#define EEPROM_SIZE 15
 String sample;
 // -  -  -  -- Fuel variables - --- - -
 // Potentiometer is connected to GPIO 34 (Analog ADC1_CH6)
@@ -18,8 +20,8 @@ double MAX_VAL_V = 0.32; //voltage of maximum gauge value
 double MIN_VAL_V = 1.41;
 //double MAX_VAL_V = 2.43; //voltage of maximum gauge value
 //double MIN_VAL_V = 7.1;
-
-String BT_name= "DT-006"; //  device name
+int address;
+String BT_name;
 
 int potValue[10];
 double CAL = 0;
@@ -64,7 +66,6 @@ String nodes[] = {
   "mdr"
 };
 
-
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
@@ -96,17 +97,13 @@ TaskHandle_t Task2;
 String filename = "/File_httpData";
 String checker = "/Checker";
 String receiver = "/Receiver";
-String PendingFile = "/PendingFile";
 String DataLogger = "/DataLogger";
 String MDRnumber = "/MDRnumber";
 String macAdr;
-String destination;
 String App_Data, character;
 String BT_String;
 String LastNum = "/File_LastNum.txt";
 String LastSent = "/File_LastSent.txt";
-bool confirm = false;
-bool MDRcreate = false;
 bool send_weight = false;
 String WMT;
 
@@ -169,21 +166,34 @@ bool setPowerBoostKeepOn(int en) {
 }
 
 void setup() {
-  MAX_VAL_V = MAX_VAL_V * 0.40869 ; //voltage div ratio (68k,10k ohms)
-  MIN_VAL_V = MIN_VAL_V * 0.40869 ;
+  MAX_VAL_V = MAX_VAL_V ;
+  MIN_VAL_V = MIN_VAL_V ;
   CAL = (MAX_VAL_V - MIN_VAL_V);
-
+  SerialMon.begin(115200);
   pinMode(LEDPin, OUTPUT);
   pinMode(BT_LED, OUTPUT);
   pinMode(potPin, INPUT);
   digitalWrite (BT_LED, LOW);
   Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  SerialBT.begin(BT_name); //Bluetooth dev ice name
+  
+  if (!EEPROM.begin(EEPROM_SIZE)) {
+    Serial.println("Failed to initialise EEPROM");
+    Serial.println("Restarting...");
+    delay(1000);
+    ESP.restart();
+  }
+ 
+  address = 0;
+  readStringFromEEPROM(address,&BT_name);
+  Serial.println(BT_name);
+  
+  SerialBT.begin(BT_name); //Bluetooth device name
+  delay(10);
   SerialBT.register_callback (Bt_Status);
 
-  SerialMon.begin(115200);
   if (!SD.begin()) {
     Serial.println("Card Mount Failed");
+    ESP.restart();
     return;
   }
   uint8_t cardType = SD.cardType();
@@ -268,6 +278,15 @@ void Task1code( void * pvParameters ) {
     while (Serial2.available() > 0) {
       App_Data = Serial2.readStringUntil('\n'); //data from ESP2
     }
+    while (Serial.available() > 0)
+    {
+      address = 0;
+      String BT = Serial.readStringUntil('\n');
+      writeStringToEEPROM(address, BT);
+      Serial.println("Changing Device name");
+      delay(1000);
+      ESP.restart();
+    }
     if (App_Data.length() > 17)
     {
       if (App_Data.length() == 21) // RCV&MacAdr
@@ -299,14 +318,21 @@ void Task1code( void * pvParameters ) {
       if (result == "mdr")
       {
         Serial2.print("confirmed");
-
         String receiverFN = receiver + ".txt";
-        // confirm = true;
         bool save = false;
         while (!save)
         {
           save = writeFile(SD, receiverFN, BT_String);
         }
+      }
+      if (result == "BT_name")
+      {
+        address = 0;
+        String BT = getValue(BT_String, '=', 1);
+        writeStringToEEPROM(address, BT);
+        Serial.println("Changing Device name");
+        delay(1000);
+        ESP.restart();
       }
     }
     if (BT_String.length() > 30) {
@@ -341,9 +367,9 @@ void Task1code( void * pvParameters ) {
     App_Data = "";
     BT_String = "";
 
-    vTaskDelay(200 / portTICK_PERIOD_MS);
+    vTaskDelay(100 / portTICK_PERIOD_MS);
   }
-  vTaskDelay(100 / portTICK_PERIOD_MS);
+  vTaskDelay(50 / portTICK_PERIOD_MS);
 }
 //Task2code: Scans SD card and send to server
 void Task2code( void * pvParameters ) {
@@ -406,7 +432,6 @@ void Task2code( void * pvParameters ) {
       int lastnum_int = lastnum.toInt();
 
       if (Send_success) {
-
         if ((lastsent_int == --lastnum_int) || (lastsent_int >= lastnum_int)) {
           lastnum = "0";
           lastsent = "0";
@@ -415,11 +440,9 @@ void Task2code( void * pvParameters ) {
           while (!written1) {
             written1 = writeFile(SD, LastSent, lastsent);
           }
-
           while (!written2) {
             written2 = writeFile(SD, LastNum, lastnum);
           }
-
           if (written1 && written2)
             deleteFile(SD, http_txt);
         }
@@ -430,16 +453,13 @@ void Task2code( void * pvParameters ) {
           while (!written1) {
             written1 = writeFile(SD, LastSent, (String)lastsent_int);
           }
-
           if (written1)
             deleteFile(SD, http_txt);
         }
       }
-      //digitalWrite(LEDPin, LOW);
     }
+
     // if the Checker created MDR then send to cloud
-    // if (MDRcreate)
-    // {
     String checkerFN = checker + ".txt";
     String MDRbuild = readFile(SD, checkerFN);
     if (MDRbuild != "")
@@ -449,12 +469,10 @@ void Task2code( void * pvParameters ) {
       if (Send_success)   // We need  to save the data after sending to cloud
       {
         deleteFile(SD, checkerFN);
-        //     MDRcreate = false;
       }
     }
-    // }
-    // if (confirm)
-    // {
+
+    // check if the DT arrived at the destination( data from receiver)
     String recConfirm = receiver + ".txt";
     String confirm_data = readFile(SD, recConfirm);
     if (confirm_data != "")
@@ -464,10 +482,9 @@ void Task2code( void * pvParameters ) {
       if (Send_success)   // We need  to save the data after sending to cloud
       {
         deleteFile(SD, recConfirm);
-        //    confirm = false;
       }
     }
-    //  }
+    // if the DT arrived at the Weighbridge
     if (send_weight)
     {
       String MDRno = MDRnumber + ".txt";
@@ -484,12 +501,11 @@ void Task2code( void * pvParameters ) {
           send_weight = false;
         }
       }
-
     }
 
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    vTaskDelay(20 / portTICK_PERIOD_MS);
   }
-  vTaskDelay(10 / portTICK_PERIOD_MS);
+  vTaskDelay(20 / portTICK_PERIOD_MS);
 }
 
 void MDRToSD()
@@ -500,7 +516,6 @@ void MDRToSD()
   String MDRbuild = buildUrlParams(MDR);
   Serial.println(MDRbuild);
   bool save = false;
-  //MDRcreate = true;
   while (!save)
   {
     String MDRno = MDRnumber + ".txt";
@@ -601,7 +616,6 @@ void reset_SD_Card() {
   }
   deleteFile(SD, LastNum);
   deleteFile(SD, LastSent);
-
 }
 
 bool SendtoServer(String httpRequestData_local, String resources) {
@@ -640,7 +654,7 @@ bool SendtoServer(String httpRequestData_local, String resources) {
       while (client.connected() && millis() - timeout < 10000L) {
         while (client.available()) {
           char c = client.read();
-          Serial.print(c);
+         // Serial.print(c);
           if (c == '{')
             start_save = true;
           if (start_save)
@@ -655,7 +669,6 @@ bool SendtoServer(String httpRequestData_local, String resources) {
       SerialMon.println(F("Server disconnected"));
       modem.gprsDisconnect();
       SerialMon.println(F("GPRS disconnected"));
-      // SerialBT.print(web_response); // Send response back to App
       Serial.println(web_response);
       vTaskDelay(10 / portTICK_PERIOD_MS);
       return true;
@@ -673,7 +686,6 @@ String read_fuel()
     if (potValue[j] != 0) {
       cnt++;
     }
-    delay(10);
   }
   if (cnt == 0) {
     result_ave = result / 1;
@@ -714,7 +726,6 @@ String buildUrlParams(String data)
       _cnt++;
     }
   }
-
   return url;
 }
 String getValue(String data, char separator, int index)
@@ -731,4 +742,30 @@ String getValue(String data, char separator, int index)
     }
   }
   return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+int writeStringToEEPROM(int addrOffset, const String &strToWrite)
+{
+  byte len = strToWrite.length();
+  EEPROM.write(addrOffset, len);
+  for (int i = 0; i < len; i++)
+  {
+    EEPROM.write(addrOffset + 1 + i, strToWrite[i]);
+    EEPROM.commit();
+  }
+  return addrOffset + 1 + len;
+}
+int readStringFromEEPROM(int addrOffset, String *strToRead)
+{
+  int newStrLen = EEPROM.read(addrOffset);
+  char data[newStrLen + 1];
+
+  for (int i = 0; i < newStrLen; i++)
+  {
+    data[i] = EEPROM.read(addrOffset + 1 + i);
+  }
+  data[newStrLen] = '\0';
+
+  *strToRead = String (data);
+  return addrOffset + 1 + newStrLen;
 }

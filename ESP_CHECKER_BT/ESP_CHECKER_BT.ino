@@ -7,12 +7,15 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
+#include <Preferences.h>
+
+Preferences preferences;
+String BTname, BT;
 
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
 
-String BT_name="Checker 1";
 String filename = "/File_httpData";
 String LastNum = "/File_LastNum.txt";
 String LastSent = "/File_LastSent.txt";
@@ -103,14 +106,21 @@ void Bt_Status (esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 void setup()
 {
   Serial.begin(115200);
-  I2CPower.begin(I2C_SDA, I2C_SCL, 400000);
-  //I2CBME.begin(I2C_SDA_2, I2C_SCL_2, 400000);
-  bool isOk = setPowerBoostKeepOn(1);
-  Serial.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
+  pinMode(LEDPin, OUTPUT);
+  pinMode(BT_LED, OUTPUT);
+  digitalWrite (BT_LED, LOW);
+  digitalWrite(LEDPin, LOW);
+  delay(10);
+  get_name("BT");
+  Serial.println(BT);
+  SerialBT.begin(BT); //Bluetooth device name
+  SerialBT.register_callback (Bt_Status);
 
   if (!SD.begin()) {
     Serial.println("Card Mount Failed");
-    return;
+    ESP.restart();
+    //return;
   }
   uint8_t cardType = SD.cardType();
 
@@ -118,21 +128,23 @@ void setup()
     Serial.println("No SD card attached");
     return;
   }
-  // reset_SD_Card();
 
-  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
-  pinMode(LEDPin, OUTPUT);
-  pinMode(BT_LED, OUTPUT);
-  digitalWrite (BT_LED, LOW);
+  I2CPower.begin(I2C_SDA, I2C_SCL, 400000);
+  bool isOk = setPowerBoostKeepOn(1);
+  Serial.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
   digitalWrite(LEDPin, HIGH);
-  SerialBT.begin(BT_name); //Bluetooth device name
-  SerialBT.register_callback (Bt_Status);
-
 }
 
 
 void loop()
 {
+  while (Serial.available() > 0)
+  {
+    BTname = Serial.readStringUntil('\n');
+    saved_name("BT",BTname);
+    delay(1000);
+    ESP.restart();
+  }
   while (Serial2.available() > 0)
   {
     macRec = Serial2.readStringUntil('\n');
@@ -145,17 +157,29 @@ void loop()
     SerialBT.print(macRec);
     Serial.println(macRec);
   }
+  if (BT_String.length() < 17 && BT_String != "")
+  {
+    String result = getValue(BT_String, '=', 0);
+    if (result == "BT_name")
+    {
+      BTname = getValue(BT_String, '=', 1);
+      Serial.println("Changing Device name");
+      saved_name("BT",BTname);
+      delay(1000);
+      ESP.restart();
+    }
+  }
 
   if (BT_String.length() > 17)
   {
     String MDR = BT_String + "&";
     Checker_Data = buildUrlParams(MDR); // For Saving Data
     MDRnumber = getValue(BT_String, '&', 32);
-    digitalWrite(LEDPin, LOW);
+    //digitalWrite(LEDPin, LOW);
     Serial2.print(BT_String);
     Serial.println(BT_String);
     saveToSD();
-    digitalWrite(LEDPin, HIGH);
+    //digitalWrite(LEDPin, HIGH);
   }
 
   BT_String = "";
@@ -193,9 +217,9 @@ String readFile(fs::FS &fs, String path) {
   if (!file) {
     Serial.println();
     Serial.println("Failed to open " + path + " for reading");
-    digitalWrite(LEDPin, LOW);
+    //digitalWrite(LEDPin, LOW);
     vTaskDelay(50 / portTICK_PERIOD_MS);
-    digitalWrite(LEDPin, HIGH);
+    //digitalWrite(LEDPin, HIGH);
     return read_String;
   }
   //Serial.print("Read from file: ");
@@ -280,4 +304,30 @@ String getValue(String data, char separator, int index)
     }
   }
   return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
+}
+
+void saved_name(const char* key, String val)
+{
+  preferences.begin("BT_name", false);
+  preferences.putString(key, val);
+  Serial.println("BT_name has been updated");
+  preferences.end();
+}
+
+String get_name(const char* key)
+{
+  preferences.begin("BT_name", false);
+  BT = preferences.getString(key, "");
+  if (BT == "")
+  {
+    Serial.println("No data found");
+    BT = "Checker";
+  }
+  else
+  {
+    Serial.println("getname");
+  }
+  
+  preferences.end();
+  return BT;
 }
