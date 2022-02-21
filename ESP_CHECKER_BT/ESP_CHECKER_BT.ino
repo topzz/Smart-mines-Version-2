@@ -153,7 +153,7 @@ void loop()
     RxdChar = (char)SerialBT.read();
     BT_String += RxdChar;
   }
-  if (macRec.length() == 17) {
+  if (macRec.length() >= 17) {
     SerialBT.print(macRec);
     Serial.println(macRec);
   }

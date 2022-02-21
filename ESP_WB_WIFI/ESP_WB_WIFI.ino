@@ -2,8 +2,8 @@
 #include <WiFi.h>
 
 //SoftwareSerial esp32_Serial(12,14);
-#define RXD2 14
-#define TXD2 12
+#define RXD2 12
+#define TXD2 14
 
 String dataRec;
 String success;

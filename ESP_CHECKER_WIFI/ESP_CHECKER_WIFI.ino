@@ -84,7 +84,7 @@ void setup() {
   // get recv packet info
   esp_now_register_recv_cb(OnDataRecv);
 
-  digitalWrite(broadcastLED, HIGH);
+  //digitalWrite(broadcastLED, HIGH);
 }
 
 void loop()

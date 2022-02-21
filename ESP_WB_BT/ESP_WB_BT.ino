@@ -7,9 +7,11 @@
 #include "FS.h"
 #include "SD.h"
 #include "SPI.h"
-#include <EEPROM.h>
+#include <Preferences.h>
 
-#define EEPROM_SIZE 15
+Preferences preferences;
+String BTname, BT;
+
 #if !defined(CONFIG_BT_ENABLED) || !defined(CONFIG_BLUEDROID_ENABLED)
 #error Bluetooth is not enabled! Please run `make menuconfig` to and enable it
 #endif
@@ -36,7 +38,7 @@ String BT_String, RxdChar;
 // I2C for SIM800 (to keep it running when powered from battery)
 TwoWire I2CPower = TwoWire(0);
 
-bool setPowerBoostKeepOn(int en){
+bool setPowerBoostKeepOn(int en) {
   I2CPower.beginTransmission(IP5306_ADDR);
   I2CPower.write(IP5306_REG_SYS_CTL0);
   if (en) {
@@ -68,173 +70,215 @@ void Bt_Status (esp_spp_cb_event_t event, esp_spp_cb_param_t *param) {
 void setup()
 {
   Serial.begin(115200);
-  I2CPower.begin(I2C_SDA, I2C_SCL, 400000);
-  //I2CBME.begin(I2C_SDA_2, I2C_SCL_2, 400000);
-  bool isOk = setPowerBoostKeepOn(1);
-  Serial.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
- /* 
-  if(!SD.begin(5)){
-    Serial.println("Card Mount Failed");
-    return;
-  }
-  uint8_t cardType = SD.cardType();
-
-  if(cardType == CARD_NONE){
-    Serial.println("No SD card attached");
-    return;
-  }
- // reset_SD_Card();
-*/  
-  Serial2.begin(9600,SERIAL_8N1, RXD2, TXD2);
+  Serial2.begin(9600, SERIAL_8N1, RXD2, TXD2);
   pinMode(LEDPin, OUTPUT);
   pinMode(BT_LED, OUTPUT);
   digitalWrite (BT_LED, LOW);
-  digitalWrite(LEDPin,HIGH);
-  EEPROM.begin(EEPROM_SIZE);
-  address=0;
-  BT_name= EEPROM.readString(address);
-  SerialBT.begin(BT_name); //Bluetooth device name
+  digitalWrite(LEDPin, LOW);
+  delay(10);
+  get_name("BT");
+  Serial.println(BT);
+  SerialBT.begin(BT); //Bluetooth device name
   SerialBT.register_callback (Bt_Status);
 /*
-  if(!SD.exists(LastSent)&&!SD.exists(LastNum)){
-    writeFile(SD, LastSent, "0");
-    writeFile(SD, LastNum, "0");
-    Serial.println("LastNum and LastSent written");
+  if (!SD.begin()) {
+    Serial.println("Card Mount Failed");
+    ESP.restart();
+    //return;
   }
-  else{
-    String lastsent = readFile(SD, LastSent);
-    String lastnum = readFile(SD, LastNum);
-    Serial.println("LastNum:" + lastnum);
-    Serial.println("LastSent:" + lastsent);
+  uint8_t cardType = SD.cardType();
+
+  if (cardType == CARD_NONE) {
+    Serial.println("No SD card attached");
+    return;
   }
- */
+*/
+  I2CPower.begin(I2C_SDA, I2C_SCL, 400000);
+  bool isOk = setPowerBoostKeepOn(1);
+  Serial.println(String("IP5306 KeepOn ") + (isOk ? "OK" : "FAIL"));
+  digitalWrite(LEDPin, HIGH);
 }
 
 
 void loop()
 {
-  while(Serial.available()>0)
+  while (Serial.available() > 0)
   {
-    String BT=Serial.readStringUntil('\n');
-    EEPROM.writeString(address,BT);
-    EEPROM.commit();
+    BTname = Serial.readStringUntil('\n');
+    saved_name("BT", BTname);
+    delay(1000);
     ESP.restart();
   }
-  while(Serial2.available()>0)
+  while (Serial2.available() > 0)
   {
-    macRec=Serial2.readStringUntil('\n');
-  }  
-  while(SerialBT.available()>0) {
+    macRec = Serial2.readStringUntil('\n');
+  }
+  while (SerialBT.available() > 0) {
     RxdChar = (char)SerialBT.read();
-    BT_String+=RxdChar;
+    BT_String += RxdChar;
   }
-  if(macRec.length()==17){
-    SerialBT.print(macRec); 
-    Serial.println(macRec);     
+  if (macRec.length() > 17) {
+    SerialBT.print(macRec);
+    Serial.println(macRec);
   }
-  
-  if(BT_String.length()>17)
+
+  if (BT_String.length() > 17)
   {
-    digitalWrite(LEDPin, LOW);
     Serial2.print(BT_String);
     Serial.println(BT_String);
     //saveToSD();
-    digitalWrite(LEDPin,HIGH);
   }
-  BT_String="";
-  macRec="";
-  vTaskDelay(20/portTICK_PERIOD_MS);
+  BT_String = "";
+  macRec = "";
+  vTaskDelay(20 / portTICK_PERIOD_MS);
 }
 
 void saveToSD()
 {
-  String lastnum = readFile(SD, LastNum);
-  int lastnum_int = lastnum.toInt();
-  
-  String http_txt= filename+(String)lastnum_int+".txt";
-  Serial.println(http_txt);
-  bool written1=false;
-  bool written2=false;
-  while(!written1){ //retry if failed to write
-    written1=writeFile(SD, http_txt, BT_String); 
+  String MDR = getValue(BT_String, '&', 4);
+  char _c;
+  char _no = '/';
+  for (int i = 0; i < MDR.length() - 1; i++)
+  {
+    _c = MDR.charAt(i);
+    if (_c == _no)
+    {
+      MDR.remove(i, 1);
+    }
   }
-  lastnum_int++; 
-  Serial.println(lastnum_int); 
-  while(!written2){
-    written2=writeFile(SD, LastNum, (String)lastnum_int);
+  Serial.println(MDR);
+  String FileName = "/" + MDR + ".txt";
+  bool written = false;
+  if (SD.exists(FileName))
+  {
+    while (!written)
+    {
+      written = appendFile(SD, FileName, BT_String);
+    }
+  }
+  else
+  {
+    while (!written)
+    {
+      written = writeFile(SD, FileName, BT_String);
+    }
+  }
+
+}
+
+void deleteFile(fs::FS &fs, String path) {
+  Serial.println("Deleting file: " + path);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
+  if (fs.remove(path)) {
+    Serial.println("File deleted");
+  } else {
+    Serial.println("Delete failed");
   }
 }
 
-void deleteFile(fs::FS &fs, String path){
-    Serial.println("Deleting file: "+ path);
-    vTaskDelay(10/portTICK_PERIOD_MS);
-    if(fs.remove(path)){
-        Serial.println("File deleted");
-    } else {
-        Serial.println("Delete failed");
-    }
-}
-
-String readFile(fs::FS &fs, String path){
-    //Serial.println("Reading file: "+ path);
-    String read_String="";
-    File file = fs.open(path);
-    vTaskDelay(100/portTICK_PERIOD_MS);
-    if(!file){
-        Serial.println();
-        Serial.println("Failed to open "+ path +" for reading");
-        digitalWrite(LEDPin, LOW);
-        vTaskDelay(50/portTICK_PERIOD_MS);
-        digitalWrite(LEDPin, HIGH);
-        return read_String;
-    }
-
-    //Serial.print("Read from file: ");
-    while(file.available()){
-       //Serial.print((char)file.read());
-       read_String+=(char)file.read();
-    }
-    file.close();
+String readFile(fs::FS &fs, String path) {
+  //Serial.println("Reading file: "+ path);
+  String read_String = "";
+  File file = fs.open(path);
+  vTaskDelay(100 / portTICK_PERIOD_MS);
+  if (!file) {
+    Serial.println();
+    Serial.println("Failed to open " + path + " for reading");
+    digitalWrite(LEDPin, LOW);
+    vTaskDelay(50 / portTICK_PERIOD_MS);
+    digitalWrite(LEDPin, HIGH);
     return read_String;
+  }
+
+  //Serial.print("Read from file: ");
+  while (file.available()) {
+    //Serial.print((char)file.read());
+    read_String += (char)file.read();
+  }
+  file.close();
+  return read_String;
 }
 
-bool writeFile(fs::FS &fs, String path, String message){
-    
-    Serial.println("Writing file: "+ path);
-    vTaskDelay(10/portTICK_PERIOD_MS);
-    
-    File file = fs.open(path, FILE_WRITE);
-    vTaskDelay(10/portTICK_PERIOD_MS);
-    
-    if(!file){
-        Serial.println("Failed to open file for writing");
-        return false;
-    }
-    if(file.print(message)){
-        Serial.println("File written");
-        file.close();
-        return true;
-    } else {
-        Serial.println("Write failed");
-        file.close();
-        return false;
-    }
+bool writeFile(fs::FS &fs, String path, String message) {
+
+  Serial.println("Writing file: " + path);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
+
+  File file = fs.open(path, FILE_WRITE);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
+
+  if (!file) {
+    Serial.println("Failed to open file for writing");
+    return false;
+  }
+  if (file.print(message)) {
+    Serial.println("File written");
+    file.close();
+    return true;
+  } else {
+    Serial.println("Write failed");
+    file.close();
+    return false;
+  }
 }
-void reset_SD_Card(){
-  
-  for(int i=0; i<10; i++)
-    { 
-      String http_txt= filename+String(i)+".txt";
-      String data_file = readFile(SD, http_txt);
-      if(data_file!="")
-      {
-        Serial.println(data_file);
-        deleteFile(SD, http_txt);
-      }
-      //else
-        //Serial.println("Empty");
+bool appendFile(fs::FS &fs, String path, String message) {
+  Serial.println("Appending to file: " + path);
+  vTaskDelay(10 / portTICK_PERIOD_MS);
+  File file = fs.open(path, FILE_APPEND);
+  if (!file) {
+    Serial.println("Failed to open file for appending");
+    return false;
+  }
+  if (file.print(message)) {
+    Serial.println("Message appended");
+    file.close();
+    return true;
+  } else {
+    Serial.println("Append failed");
+    file.close();
+    return false;
+  }
+}
+
+
+void saved_name(const char* key, String val)
+{
+  preferences.begin("BT_name", false);
+  preferences.putString(key, val);
+  Serial.println("BT_name has been updated");
+  preferences.end();
+}
+
+String get_name(const char* key)
+{
+  preferences.begin("BT_name", false);
+  BT = preferences.getString(key, "");
+  if (BT == "")
+  {
+    Serial.println("No data found");
+    BT = "WeighBridge";
+  }
+  else
+  {
+    Serial.println("getname");
+  }
+
+  preferences.end();
+  return BT;
+}
+
+String getValue(String data, char separator, int index)
+{
+  int found = 0;
+  int strIndex[] = { 0, -1 };
+  int maxIndex = data.length() - 1;
+
+  for (int i = 0; i <= maxIndex && found <= index; i++) {
+    if (data.charAt(i) == separator || i == maxIndex) {
+      found++;
+      strIndex[0] = strIndex[1] + 1;
+      strIndex[1] = (i == maxIndex) ? i + 1 : i;
     }
-    deleteFile(SD, LastNum);
-    deleteFile(SD, LastSent);
-    
+  }
+  return found > index ? data.substring(strIndex[0], strIndex[1]) : "";
 }
